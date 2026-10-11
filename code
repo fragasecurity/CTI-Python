@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+"""
+Adversary Infrastructure Mapper for CTI Analysts
+Uses NetworkX to model and analyze threat actor infrastructure graphs.
+"""
+
+import networkx as nx
+import matplotlib.pyplot as plt
+from collections import defaultdict
+import json
+from datetime import datetime
+
+# Optional: interactive visualization
+try:
+    from pyvis.network import Network
+    PYVIS_AVAILABLE = True
+except ImportError:
+    PYVIS_AVAILABLE = False
+    print("[!] PyVis not installed. Interactive HTML viz disabled. pip install pyvis")
+
+
+class AdversaryInfrastructureGraph:
+    """Graph model for mapping adversary infrastructure in CTI."""
+
+    def __init__(self, name="Adversary Infrastructure"):
+        self.G = nx.DiGraph()
+        self.name = name
+        self.G.graph["name"] = name
+        self.G.graph["created"] = datetime.utcnow().isoformat()
+
+    # ---------- Node & Edge Helpers ----------
+    def add_entity(self, entity_id, entity_type, **attrs):
+        """Add a node (IOC / entity) with type and attributes."""
+        attrs["type"] = entity_type
+        attrs.setdefault("added", datetime.utcnow().isoformat())
+        self.G.add_node(entity_id, **attrs)
+
+    def add_relation(self, source, target, relation, **attrs):
+        """Add a directed relationship between two entities."""
+        attrs["relation"] = relation
+        attrs.setdefault("added", datetime.utcnow().isoformat())
+        self.G.add_edge(source, target, **attrs)
+
+    # ---------- Sample Data Population ----------
+    def load_sample_shadowfox(self):
+        """Load fictional ShadowFox APT infrastructure for demonstration."""
+        # Threat Actor & Campaign
+        self.add_entity("ShadowFox", "Actor",
+                        description="Fictional advanced persistent threat group",
+                        aliases=["SF", "FoxGroup"],
+                        origin="Eastern Europe")
+        self.add_entity("Operation SilentHarvest", "Campaign",
+                        description="Espionage campaign targeting energy sector")
+
+        # Domains
+        domains = [
+            "update-service[.]net",
+            "cdn-analytics[.]org",
+            "mail-gateway[.]com",
+            "staging-panel[.]info"
+        ]
+        for d in domains:
+            self.add_entity(d, "Domain",
+                            first_seen="2025-01-15",
+                            registrar="NameCheap (common for abuse)")
+
+        # IPs
+        ips = [
+            "203.0.113.45",
+            "198.51.100.78",
+            "192.0.2.12",
+            "185.199.108.153"
+        ]
+        for ip in ips:
+            self.add_entity(ip, "IP",
+                            asn="AS12345",
+                            geo="NL / Bulletproof hosting")
+
+        # Malware
+        self.add_entity("sha256:a1b2c3d4e5f6...", "Malware",
+                        family="SilentStealer",
+                        type_malware="Infostealer + RAT")
+        self.add_entity("md5:deadbeefcafe", "Malware",
+                        family="SilentStealer",
+                        stage="Dropper")
+
+        # Relationships
+        self.add_relation("ShadowFox", "Operation SilentHarvest", "conducts")
+        self.add_relation("ShadowFox", "update-service[.]net", "uses")
+        self.add_relation("ShadowFox", "cdn-analytics[.]org", "uses")
+        self.add_relation("Operation SilentHarvest", "sha256:a1b2c3d4e5f6...", "deploys")
+
+        self.add_relation("update-service[.]net", "203.0.113.45", "resolves_to",
+                          first_seen="2025-02-01", last_seen="2025-10-01")
+        self.add_relation("cdn-analytics[.]org", "198.51.100.78", "resolves_to")
+        self.add_relation("mail-gateway[.]com", "192.0.2.12", "resolves_to")
+        self.add_relation("staging-panel[.]info", "185.199.108.153", "resolves_to")
+
+        self.add_relation("203.0.113.45", "sha256:a1b2c3d4e5f6...", "hosts")
+        self.add_relation("198.51.100.78", "md5:deadbeefcafe", "hosts")
+        self.add_relation("sha256:a1b2c3d4e5f6...", "update-service[.]net", "communicates_with",
+                          protocol="HTTPS")
+
+        print(f"[+] Sample ShadowFox infrastructure loaded: "
+              f"{self.G.number_of_nodes()} nodes, {self.G.number_of_edges()} edges")
+
+    # ---------- Analysis Methods ----------
+    def get_hubs(self, top_n=10, metric="degree"):
+        """Identify high-centrality nodes (shared infrastructure / hubs)."""
+        if metric == "degree":
+            centrality = nx.degree_centrality(self.G)
+        elif metric == "betweenness":
+            centrality = nx.betweenness_centrality(self.G)
+        else:
+            raise ValueError("metric must be 'degree' or 'betweenness'")
+
+        sorted_nodes = sorted(centrality.items(), key=lambda x: x[1], reverse=True)[:top_n]
+        results = []
+        for node, score in sorted_nodes:
+            results.append({
+                "node": node,
+                "type": self.G.nodes[node].get("type"),
+                "centrality": round(score, 4),
+                "degree": self.G.degree(node)
+            })
+        return results
+
+    def find_clusters(self):
+        """Find connected components (infrastructure clusters)."""
+        undirected = self.G.to_undirected()
+        components = list(nx.connected_components(undirected))
+        clusters = []
+        for i, comp in enumerate(sorted(components, key=len, reverse=True)):
+            types = defaultdict(list)
+            for n in comp:
+                types[self.G.nodes[n].get("type", "unknown")].append(n)
+            clusters.append({
+                "cluster_id": i,
+                "size": len(comp),
+                "entities_by_type": dict(types)
+            })
+        return clusters
+
+    def path_between(self, source, target):
+        """Find shortest path(s) between two entities (infrastructure chaining)."""
+        try:
+            paths = list(nx.all_shortest_paths(self.G, source, target))
+            return paths
+        except nx.NetworkXNoPath:
+            return []
+
+    # ---------- Visualization ----------
+    def visualize_matplotlib(self, title=None, figsize=(14, 10)):
+        """Static visualization with Matplotlib."""
+        if not self.G.nodes:
+            print("[!] Graph is empty")
+            return
+
+        color_map = {
+            "Actor": "#e74c3c",
+            "Campaign": "#9b59b6",
+            "Domain": "#3498db",
+            "IP": "#2ecc71",
+            "Malware": "#e67e22",
+            "URL": "#1abc9c",
+            "ASN": "#f39c12"
+        }
+        node_colors = [color_map.get(self.G.nodes[n].get("type"), "#95a5a6")
+                       for n in self.G.nodes]
+
+        pos = nx.spring_layout(self.G, seed=42, k=0.6)
+        plt.figure(figsize=figsize)
+        nx.draw(self.G, pos,
+                with_labels=True,
+                node_color=node_colors,
+                node_size=1800,
+                font_size=8,
+                font_weight="bold",
+                arrows=True,
+                arrowsize=15,
+                edge_color="#7f8c8d",
+                width=1.2)
+
+        edge_labels = nx.get_edge_attributes(self.G, "relation")
+        nx.draw_networkx_edge_labels(self.G, pos, edge_labels=edge_labels,
+                                     font_size=7, font_color="#2c3e50")
+
+        plt.title(title or self.name)
+        plt.axis("off")
+        plt.tight_layout()
+        plt.show()
+
+    def visualize_pyvis(self, output_html="adversary_infrastructure.html"):
+        """Interactive HTML visualization with PyVis (recommended for exploration)."""
+        if not PYVIS_AVAILABLE:
+            print("[!] PyVis not available")
+            return
+
+        net = Network(height="750px", width="100%", directed=True,
+                      bgcolor="#1e1e1e", font_color="white", notebook=False)
+
+        # Color by type
+        color_map = {
+            "Actor": "#e74c3c",
+            "Campaign": "#9b59b6",
+            "Domain": "#3498db",
+            "IP": "#2ecc71",
+            "Malware": "#e67e22"
+        }
+
+        for node, data in self.G.nodes(data=True):
+            title = f"<b>{node}</b><br>Type: {data.get('type')}<br>" + \
+                    "<br>".join(f"{k}: {v}" for k, v in data.items() if k != "type")
+            net.add_node(node,
+                         label=node,
+                         title=title,
+                         color=color_map.get(data.get("type"), "#95a5a6"),
+                         size=25 if data.get("type") == "Actor" else 18)
+
+        for src, dst, data in self.G.edges(data=True):
+            title = f"Relation: {data.get('relation')}<br>" + \
+                    "<br>".join(f"{k}: {v}" for k, v in data.items() if k != "relation")
+            net.add_edge(src, dst, title=title, label=data.get("relation", ""))
+
+        net.show_buttons(filter_=["physics"])
+        net.save_graph(output_html)
+        print(f"[+] Interactive graph saved to: {output_html}")
+
+    # ---------- Export ----------
+    def export_graphml(self, path="infrastructure.graphml"):
+        nx.write_graphml(self.G, path)
+        print(f"[+] GraphML exported: {path}")
+
+    def export_json(self, path="infrastructure.json"):
+        data = nx.node_link_data(self.G)
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+        print(f"[+] JSON (node-link) exported: {path}")
+
+
+# ==================== USAGE EXAMPLE ====================
+if __name__ == "__main__":
+    # Create and populate graph
+    infra = AdversaryInfrastructureGraph("ShadowFox Infrastructure Map")
+    infra.load_sample_shadowfox()
+
+    # Analysis
+    print("\n=== Top Hubs (Degree Centrality) ===")
+    for hub in infra.get_hubs(top_n=5):
+        print(hub)
+
+    print("\n=== Infrastructure Clusters ===")
+    for cluster in infra.find_clusters():
+        print(f"Cluster {cluster['cluster_id']} (size {cluster['size']}):")
+        for etype, entities in cluster["entities_by_type"].items():
+            print(f"  {etype}: {entities}")
+
+    print("\n=== Path Example (Actor → Malware) ===")
+    paths = infra.path_between("ShadowFox", "sha256:a1b2c3d4e5f6...")
+    for p in paths:
+        print(" → ".join(p))
+
+    # Visualize
+    # infra.visualize_matplotlib()          # Uncomment for static plot
+    infra.visualize_pyvis()                 # Interactive HTML (recommended)
+
+    # Export
+    infra.export_graphml()
+    infra.export_json()
+
+
+
+
+Gemini code:
