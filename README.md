@@ -21,7 +21,7 @@ To prevent package conflicts with your base operating system (especially importa
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com
+git clone https://github.com/fragasecurity/CTI-Python.git
 cd CTI-Python
 
 # 2. Create the virtual environment inside the folder
