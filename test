@@ -1,3 +1,23 @@
+
+
+Notes & Limitations 
+SecurityTrails API key is required for all core pivoting and monitoring. The free tier is rate-limited; production use needs a paid plan.
+Certificate Transparency logs and Shodan enrichment are mentioned in the skill description but not implemented in the provided code.
+Reverse IP / nearby queries can return large result sets — the script limits to 20 per IP to avoid explosions.
+The original generate_infrastructure_report was truncated in the source; the version above is a complete, usable implementation.
+No built-in rate limiting or retry logic beyond basic try/except. Add time.sleep() or a proper rate limiter for heavy use.
+Graph is undirected (nx.Graph) in the original. You can switch to nx.DiGraph if you want directional relationships.
+
+How to RunInstall dependencies: pip install requests networkx
+Insert a real SecurityTrails API key.
+Replace the seed domain/IP.
+Run: python adversary_infra_tracker.py
+
+
+
+
+
+
 import numpy as np
 import json
 from sklearn.metrics.pairwise import cosine_similarity
