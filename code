@@ -270,5 +270,97 @@ if __name__ == "__main__":
 
 
 
-
 Gemini code:
+import networkx as nx
+import matplotlib.pyplot as plt
+
+def build_adversary_graph():
+    # 1. Initialize a directed graph (infrastructure flows from malware to C2)
+    G = nx.DiGraph()
+
+    # 2. Define our structured CTI Data (Nodes and Attributes)
+    # Good practice: Assign 'type' attributes to handle formatting/filtering later
+    nodes_data = [
+        ("Malware:CobaltStrike_v4.9", {"type": "Malware", "severity": "Critical"}),
+        ("c2-primary.bad-domain[.]xyz", {"type": "Domain", "registrar": "Namecheap"}),
+        ("c2-backup.secure-login[.]net", {"type": "Domain", "registrar": "Reg24"}),
+        ("192.0.2.55", {"type": "IP", "country": "RU"}),
+        ("198.51.100.12", {"type": "IP", "country": "NL"}),
+        ("ASN:12345", {"type": "ASN", "isp": "HostProvider-X"})
+    ]
+    
+    G.add_nodes_from(nodes_data)
+
+    # 3. Define Relationships (Edges and Attributes)
+    edges_data = [
+        # Malware communicates with Domains
+        ("Malware:CobaltStrike_v4.9", "c2-primary.bad-domain[.]xyz", {"relationship": "communicates_with"}),
+        ("Malware:CobaltStrike_v4.9", "c2-backup.secure-login[.]net", {"relationship": "communicates_with"}),
+        
+        # Domains resolve to IPs
+        ("c2-primary.bad-domain[.]xyz", "192.0.2.55", {"relationship": "resolves_to"}),
+        ("c2-backup.secure-login[.]net", "192.0.2.55", {"relationship": "resolves_to"}), # Infrastructure overlap!
+        ("c2-backup.secure-login[.]net", "198.51.100.12", {"relationship": "resolves_to"}),
+        
+        # IPs host on ASNs
+        ("192.0.2.55", "ASN:12345", {"relationship": "hosted_on"}),
+        ("198.51.100.12", "ASN:12345", {"relationship": "hosted_on"})
+    ]
+    
+    G.add_edges_from(edges_data)
+    return G
+
+def analyze_infrastructure(G):
+    print("--- CTI Infrastructure Graph Analysis ---")
+    print(Hex_Break := "="*40)
+    
+    # Identify Shared Infrastructure (Nodes with an in-degree > 1, meaning multiple assets point to it)
+    print("\n[!] Identifying Infrastructure Overlaps:")
+    for node, in_degree in G.in_degree():
+        node_type = G.nodes[node].get('type')
+        # Skip malware nodes as they are root nodes
+        if in_degree > 1 and node_type in ['IP', 'ASN']:
+            print(Hex_Break)
+            print(f"CRITICAL OVERLAP: Multiple indicators point to {node_type} ({node})")
+            # Trace back who points to it
+            associated_nodes = [source for source, target in G.in_edges(node)]
+            print(f" -> Linked Assets: {associated_nodes}")
+
+def visualize_graph(G):
+    plt.figure(figsize=(10, 8))
+    
+    # Generate layout for nodes
+    pos = nx.spring_layout(G, seed=42)
+    
+    # Color coding based on Node Type
+    color_map = []
+    for node in G:
+        ntype = G.nodes[node].get('type', 'Unknown')
+        if ntype == 'Malware': color_map.append('#ff4d4d')    # Red
+        elif ntype == 'Domain': color_map.append('#ffad33')   # Orange
+        elif ntype == 'IP': color_map.append('#3399ff')       # Blue
+        else: color_map.append('#b366ff')                    # Purple (ASN)
+
+    # Draw Nodes and Labels
+    nx.draw_networkx_nodes(G, pos, node_color=color_map, node_size=2000, alpha=0.9)
+    nx.draw_networkx_labels(G, pos, font_size=9, font_weight='bold')
+    
+    # Draw Edges with relationship text
+    nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=20, edge_color='gray', width=1.5)
+    edge_labels = nx.get_edge_attributes(G, 'relationship')
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=7)
+
+    plt.title("Adversary Infrastructure Graph (Malware -> Domain -> IP -> ASN)", fontsize=14, fontweight='bold')
+    plt.axis('off')
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    # Execute the CTI Graph Pipeline
+    threat_graph = build_adversary_graph()
+    analyze_infrastructure(threat_graph)
+    visualize_graph(threat_graph)
+
+
+
+
