@@ -1,4 +1,4 @@
-# CTI-Python
+# Python Projects for Cyber Threat Intelligence
 
 An automated **Cyber Threat Intelligence (CTI)** tool designed for security analysts and SOC teams to instantly convert unstructured, defanged OSINT threat reports and security blogs into interactive, localized node-relationship infrastructure graphs.
 
